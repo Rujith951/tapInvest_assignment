@@ -1,98 +1,74 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
+import {
+	GoogleMap,
+	useJsApiLoader,
+	Marker,
+	Polyline,
+} from "@react-google-maps/api";
+
+const containerStyle = {
+	width: "100%",
+	height: "400px",
+};
 
 const LocationMap = () => {
-	const [location, setLocation] = useState(null);
-	const canvasRef = useRef(null);
-	const containerRef = useRef(null);
-	const pathRef = useRef([]);
-	const boundsRef = useRef({
-		minLat: null,
-		maxLat: null,
-		minLng: null,
-		maxLng: null,
+	const [path, setPath] = useState([]);
+	const [currentPos, setCurrentPos] = useState(null);
+	const mapRef = useRef(null);
+
+	const { isLoaded } = useJsApiLoader({
+		googleMapsApiKey: process.env.REACT_APP_GOOGLE_MAPS_API_KEY, // make sure it's in your .env
 	});
 
 	useEffect(() => {
-		const canvas = canvasRef.current;
-		const container = containerRef.current;
-
-		if (canvas && container) {
-			canvas.width = container.clientWidth;
-			canvas.height = 300;
+		if (!navigator.geolocation) {
+			alert("Geolocation is not supported by your browser");
+			return;
 		}
-	}, []);
-
-	const latLngToCanvasXY = (lat, lng, width, height) => {
-		const { minLat, maxLat, minLng, maxLng } = boundsRef.current;
-
-		const x = ((lng - minLng) / (maxLng - minLng)) * width;
-		const y = ((maxLat - lat) / (maxLat - minLat)) * height;
-
-		return { x, y };
-	};
-
-	const drawPath = points => {
-		const canvas = canvasRef.current;
-		const ctx = canvas.getContext("2d");
-
-		ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-		if (points.length < 2) return;
-
-		ctx.strokeStyle = "#0077cc";
-		ctx.lineWidth = 2;
-		ctx.beginPath();
-		ctx.moveTo(points[0].x, points[0].y);
-		points.forEach(pt => ctx.lineTo(pt.x, pt.y));
-		ctx.stroke();
-	};
-
-	useEffect(() => {
-		const updateLocation = position => {
-			const { latitude: lat, longitude: lng } = position.coords;
-			setLocation({ lat, lng });
-
-			const b = boundsRef.current;
-			b.minLat = b.minLat !== null ? Math.min(b.minLat, lat) : lat;
-			b.maxLat = b.maxLat !== null ? Math.max(b.maxLat, lat) : lat;
-			b.minLng = b.minLng !== null ? Math.min(b.minLng, lng) : lng;
-			b.maxLng = b.maxLng !== null ? Math.max(b.maxLng, lng) : lng;
-
-			const canvas = canvasRef.current;
-			const point = latLngToCanvasXY(lat, lng, canvas.width, canvas.height);
-			pathRef.current.push(point);
-
-			drawPath(pathRef.current);
-		};
 
 		const watchId = navigator.geolocation.watchPosition(
-			updateLocation,
-			error => console.error("Geolocation error:", error),
-			{ enableHighAccuracy: true }
+			position => {
+				const { latitude, longitude } = position.coords;
+				const newPos = { lat: latitude, lng: longitude };
+				setCurrentPos(newPos);
+				setPath(prev => [...prev, newPos]);
+			},
+			error => {
+				console.error("Geolocation error:", error);
+				alert("Failed to get your location. Please allow GPS access.");
+			},
+			{
+				enableHighAccuracy: true,
+				maximumAge: 1000,
+				timeout: 10000,
+			}
 		);
 
 		return () => navigator.geolocation.clearWatch(watchId);
 	}, []);
 
-	return (
-		<div
-			ref={containerRef}
-			className="bg-white rounded-lg shadow-md p-4 w-full max-w-md mx-auto"
-		>
-			<h3 className="text-xl font-semibold mb-2">📍 Live Location (Canvas)</h3>
-			{location ? (
-				<p className="text-sm">
-					Latitude: {location.lat.toFixed(6)}, Longitude:{" "}
-					{location.lng.toFixed(6)}
-				</p>
-			) : (
-				<p className="text-sm text-gray-500">Fetching location...</p>
-			)}
+	if (!isLoaded) return <p className="text-center">🗺️ Loading Map...</p>;
 
-			<canvas
-				ref={canvasRef}
-				className="mt-4 border border-gray-300 rounded w-full"
-			/>
+	return (
+		<div className="w-full">
+			<GoogleMap
+				mapContainerStyle={containerStyle}
+				center={currentPos || { lat: 20.5937, lng: 78.9629 }} // fallback: center of India
+				zoom={currentPos ? 17 : 5}
+				onLoad={map => (mapRef.current = map)}
+			>
+				{currentPos && <Marker position={currentPos} />}
+				{path.length > 1 && (
+					<Polyline
+						path={path}
+						options={{
+							strokeColor: "#0077cc",
+							strokeOpacity: 0.8,
+							strokeWeight: 4,
+						}}
+					/>
+				)}
+			</GoogleMap>
 		</div>
 	);
 };
